@@ -9,7 +9,7 @@ class FinderObserver: NSObject {
     
     // Debouncing properties
     private var debounceWorkItem: DispatchWorkItem?
-    private let debounceInterval: TimeInterval = 0.5 
+    private let debounceInterval: TimeInterval = 0.75
     
     // Configuration Flags
     var isZoxideAddEnabled: Bool = true
