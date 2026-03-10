@@ -1,6 +1,20 @@
 import Cocoa
-import ApplicationServices
+@preconcurrency import ApplicationServices
 
+@MainActor
+@main
+struct ZoxideFinderSyncApp {
+    static func main() {
+        let observer = FinderObserver()
+        observer.start()
+
+        print("Starting Zoxide Finder Tracker (With Blacklist)...")
+        // Use the main run loop explicitly
+        RunLoop.main.run()
+    }
+}
+
+@MainActor
 class FinderObserver: NSObject {
     var lastPath: String = ""
     var observer: AXObserver?
@@ -21,6 +35,7 @@ class FinderObserver: NSObject {
     ].map { $0.hasSuffix("/") && $0.count > 1 ? String($0.dropLast()) : $0 }
 
     func start() {
+        // Now safe to access kAXTrustedCheckOptionPrompt on the MainActor
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         guard AXIsProcessTrustedWithOptions(options) else {
             print("ERROR: Accessibility permissions are required.")
@@ -32,7 +47,6 @@ class FinderObserver: NSObject {
 
         if let finderApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) {
             attachObserver(to: finderApp.processIdentifier)
-
             triggerDebouncedEvaluation()
         } else {
             print("Finder is not currently running. Waiting for launch...")
@@ -70,7 +84,10 @@ class FinderObserver: NSObject {
         let observerCallback: AXObserverCallback = { (observer, element, notification, refcon) in
             guard let refcon = refcon else { return }
             let tracker = Unmanaged<FinderObserver>.fromOpaque(refcon).takeUnretainedValue()
-            tracker.triggerDebouncedEvaluation()
+            // Dispatch back to MainActor context from the C callback
+            Task { @MainActor in
+                tracker.triggerDebouncedEvaluation()
+            }
         }
 
         var newObserver: AXObserver?
@@ -92,7 +109,7 @@ class FinderObserver: NSObject {
 
         let source = AXObserverGetRunLoopSource(observer)
         self.runLoopSource = source
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
 
         print("Successfully attached to Finder (PID: \(pid)).")
     }
@@ -100,7 +117,7 @@ class FinderObserver: NSObject {
     private func cleanupObserver() {
         debounceWorkItem?.cancel()
         if let source = runLoopSource {
-            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .defaultMode)
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
             self.runLoopSource = nil
         }
         self.observer = nil
@@ -118,7 +135,6 @@ class FinderObserver: NSObject {
 
     // MARK: - Zoxide Integration
 
-    /// Attempts to locate the zoxide executable path
     private func getZoxideExecutableURL() -> URL? {
         let commonPaths = [
             "/opt/homebrew/bin/zoxide", // Apple Silicon Homebrew
@@ -135,7 +151,6 @@ class FinderObserver: NSObject {
         return nil
     }
 
-    /// Safely runs a zoxide command bypassing the shell to prevent injection
     private func runZoxideCommand(arguments: [String]) -> String? {
         guard let zoxideURL = getZoxideExecutableURL() else {
             print("Error: Could not locate the zoxide executable.")
@@ -144,11 +159,11 @@ class FinderObserver: NSObject {
 
         let process = Process()
         process.executableURL = zoxideURL
-        process.arguments = arguments // Safely passes arguments without needing manual string escaping
+        process.arguments = arguments
         
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe() 
+        process.standardError = Pipe()
         
         do {
             try process.run()
@@ -165,7 +180,6 @@ class FinderObserver: NSObject {
     }
 
     private func getZoxideScore(for path: String) -> Double {
-        // No escaping needed! Just pass the raw path in the arguments array.
         guard let output = runZoxideCommand(arguments: ["query", "-s", path]) else { return 0.0 }
         
         let components = output.split(separator: " ", omittingEmptySubsequences: true)
@@ -176,7 +190,6 @@ class FinderObserver: NSObject {
     }
 
     private func addZoxidePath(_ path: String) {
-        // No escaping needed!
         _ = runZoxideCommand(arguments: ["add", path])
     }
 
@@ -184,7 +197,6 @@ class FinderObserver: NSObject {
     
     private func isBlacklisted(path: String) -> Bool {
         for blacklistedPath in blacklist {
-            // Check for exact match OR true subdirectory match
             if path == blacklistedPath || path.hasPrefix(blacklistedPath + "/") {
                 return true
             }
@@ -246,9 +258,3 @@ class FinderObserver: NSObject {
         return nil
     }
 }
-
-let observer = FinderObserver()
-observer.start()
-
-print("Starting Zoxide Finder Tracker (With Blacklist)...")
-RunLoop.current.run()
