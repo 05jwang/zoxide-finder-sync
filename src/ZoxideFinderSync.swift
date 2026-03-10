@@ -1,12 +1,15 @@
 import Cocoa
 import ApplicationServices
 
-// Inherit from NSObject to allow @objc selectors for NSWorkspace notifications
 class FinderObserver: NSObject {
     var lastPath: String = ""
     var observer: AXObserver?
     var finderElement: AXUIElement?
     var runLoopSource: CFRunLoopSource?
+    
+    // Debouncing properties
+    private var debounceWorkItem: DispatchWorkItem?
+    private let debounceInterval: TimeInterval = 0.5 // Adjust this value (in seconds) as needed
 
     func start() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -18,7 +21,6 @@ class FinderObserver: NSObject {
 
         setupWorkspaceObservers()
 
-        // Attempt initial attachment if Finder is already running
         if let finderApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) {
             attachObserver(to: finderApp.processIdentifier)
         } else {
@@ -38,10 +40,9 @@ class FinderObserver: NSObject {
 
         print("Finder launch detected. Attaching observer...")
         
-        // Delay slightly to ensure Finder's Accessibility hierarchy is fully initialized
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.attachObserver(to: app.processIdentifier)
-            self.evaluatePath() // Immediately evaluate in case a window opened
+            self.triggerDebouncedEvaluation()
         }
     }
 
@@ -54,12 +55,13 @@ class FinderObserver: NSObject {
     }
 
     private func attachObserver(to pid: pid_t) {
-        cleanupObserver() // Ensure no lingering state
+        cleanupObserver()
 
         let observerCallback: AXObserverCallback = { (observer, element, notification, refcon) in
             guard let refcon = refcon else { return }
             let tracker = Unmanaged<FinderObserver>.fromOpaque(refcon).takeUnretainedValue()
-            tracker.evaluatePath()
+            // Route the event through the debouncer instead of evaluating immediately
+            tracker.triggerDebouncedEvaluation()
         }
 
         var newObserver: AXObserver?
@@ -79,7 +81,6 @@ class FinderObserver: NSObject {
         AXObserverAddNotification(observer, finderElement, kAXMainWindowChangedNotification as CFString, refcon)
         AXObserverAddNotification(observer, finderElement, kAXTitleChangedNotification as CFString, refcon)
 
-        // Store the run loop source so it can be cleanly removed later
         let source = AXObserverGetRunLoopSource(observer)
         self.runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
@@ -88,6 +89,9 @@ class FinderObserver: NSObject {
     }
 
     private func cleanupObserver() {
+        // Cancel any pending evaluations if the observer is being destroyed
+        debounceWorkItem?.cancel()
+        
         if let source = runLoopSource {
             CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .defaultMode)
             self.runLoopSource = nil
@@ -95,6 +99,24 @@ class FinderObserver: NSObject {
         self.observer = nil
         self.finderElement = nil
     }
+
+    // MARK: - Debouncing Logic
+    
+    func triggerDebouncedEvaluation() {
+        // 1. Cancel the existing work item if it hasn't executed yet
+        debounceWorkItem?.cancel()
+        
+        // 2. Create a new work item
+        let workItem = DispatchWorkItem { [weak self] in
+            self?.evaluatePath()
+        }
+        
+        // 3. Store it and schedule it
+        debounceWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + debounceInterval, execute: workItem)
+    }
+
+    // MARK: - Path Evaluation
 
     func evaluatePath() {
         autoreleasepool {
@@ -134,5 +156,5 @@ class FinderObserver: NSObject {
 let observer = FinderObserver()
 observer.start()
 
-print("Starting Zoxide Finder Tracker (Resilient Event-Driven)...")
+print("Starting Zoxide Finder Tracker (Debounced)...")
 RunLoop.current.run()
