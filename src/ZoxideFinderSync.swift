@@ -32,6 +32,8 @@ class FinderObserver: NSObject {
 
         if let finderApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) {
             attachObserver(to: finderApp.processIdentifier)
+
+            triggerDebouncedEvaluation()
         } else {
             print("Finder is not currently running. Waiting for launch...")
         }
