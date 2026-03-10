@@ -1,13 +1,14 @@
 import Cocoa
 import ApplicationServices
 
-class FinderObserver {
+// Inherit from NSObject to allow @objc selectors for NSWorkspace notifications
+class FinderObserver: NSObject {
     var lastPath: String = ""
     var observer: AXObserver?
     var finderElement: AXUIElement?
+    var runLoopSource: CFRunLoopSource?
 
     func start() {
-        // 1. Prompt for Accessibility Permissions if not granted
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         guard AXIsProcessTrustedWithOptions(options) else {
             print("ERROR: Accessibility permissions are required.")
@@ -15,52 +16,87 @@ class FinderObserver {
             exit(1)
         }
 
-        // 2. Get Finder's PID
-        guard let finderApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) else {
-            print("ERROR: Finder is not running.")
-            exit(1)
-        }
-        let pid = finderApp.processIdentifier
+        setupWorkspaceObservers()
 
-        // 3. Define the Callback
+        // Attempt initial attachment if Finder is already running
+        if let finderApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == "com.apple.finder" }) {
+            attachObserver(to: finderApp.processIdentifier)
+        } else {
+            print("Finder is not currently running. Waiting for launch...")
+        }
+    }
+
+    private func setupWorkspaceObservers() {
+        let nc = NSWorkspace.shared.notificationCenter
+        nc.addObserver(self, selector: #selector(appDidLaunch(_:)), name: NSWorkspace.didLaunchApplicationNotification, object: nil)
+        nc.addObserver(self, selector: #selector(appDidTerminate(_:)), name: NSWorkspace.didTerminateApplicationNotification, object: nil)
+    }
+
+    @objc private func appDidLaunch(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.bundleIdentifier == "com.apple.finder" else { return }
+
+        print("Finder launch detected. Attaching observer...")
+        
+        // Delay slightly to ensure Finder's Accessibility hierarchy is fully initialized
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            self.attachObserver(to: app.processIdentifier)
+            self.evaluatePath() // Immediately evaluate in case a window opened
+        }
+    }
+
+    @objc private func appDidTerminate(_ notification: Notification) {
+        guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
+              app.bundleIdentifier == "com.apple.finder" else { return }
+
+        print("Finder termination detected. Cleaning up observer...")
+        cleanupObserver()
+    }
+
+    private func attachObserver(to pid: pid_t) {
+        cleanupObserver() // Ensure no lingering state
+
         let observerCallback: AXObserverCallback = { (observer, element, notification, refcon) in
             guard let refcon = refcon else { return }
-            // Extract the class instance from the C-pointer
             let tracker = Unmanaged<FinderObserver>.fromOpaque(refcon).takeUnretainedValue()
             tracker.evaluatePath()
         }
 
-        // 4. Create the Observer
         var newObserver: AXObserver?
         let result = AXObserverCreate(pid, observerCallback, &newObserver)
         guard result == .success, let observer = newObserver else {
-            print("ERROR: Failed to create AXObserver. Code: \(result.rawValue)")
-            exit(1)
+            print("Failed to create AXObserver for new Finder process. Code: \(result.rawValue)")
+            return
         }
         self.observer = observer
 
-        // 5. Create AXUIElement for Finder and Register Notifications
         let finderElement = AXUIElementCreateApplication(pid)
         self.finderElement = finderElement
         
         let refcon = Unmanaged.passUnretained(self).toOpaque()
         
-        // Listen to window focus changes and navigation (which updates the window title)
         AXObserverAddNotification(observer, finderElement, kAXFocusedWindowChangedNotification as CFString, refcon)
         AXObserverAddNotification(observer, finderElement, kAXMainWindowChangedNotification as CFString, refcon)
         AXObserverAddNotification(observer, finderElement, kAXTitleChangedNotification as CFString, refcon)
 
-        // 6. Add to RunLoop
-        CFRunLoopAddSource(CFRunLoopGetCurrent(), AXObserverGetRunLoopSource(observer), .defaultMode)
+        // Store the run loop source so it can be cleanly removed later
+        let source = AXObserverGetRunLoopSource(observer)
+        self.runLoopSource = source
+        CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .defaultMode)
 
-        print("Starting Zoxide Finder Tracker (Event-Driven)...")
-        
-        // Evaluate immediately on startup to get the current state
-        evaluatePath() 
+        print("Successfully attached to Finder (PID: \(pid)).")
+    }
+
+    private func cleanupObserver() {
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .defaultMode)
+            self.runLoopSource = nil
+        }
+        self.observer = nil
+        self.finderElement = nil
     }
 
     func evaluatePath() {
-        // Autoreleasepool ensures AppleScript memory is cleaned up per event
         autoreleasepool {
             if let currentPath = getFrontmostFinderPath(), !currentPath.isEmpty {
                 if currentPath != lastPath {
@@ -95,9 +131,8 @@ class FinderObserver {
     }
 }
 
-// Instantiate and start the observer
 let observer = FinderObserver()
 observer.start()
 
-// Keep the command-line application alive to listen for events
+print("Starting Zoxide Finder Tracker (Resilient Event-Driven)...")
 RunLoop.current.run()
