@@ -11,8 +11,14 @@ class FinderObserver: NSObject {
     private var debounceWorkItem: DispatchWorkItem?
     private let debounceInterval: TimeInterval = 0.5 
     
-    // Configuration Flag
+    // Configuration Flags
     var isZoxideAddEnabled: Bool = true
+    
+    // Blacklist configuration (automatically sanitized to remove accidental trailing slashes)
+    private let blacklist: [String] = [
+        "/Users/jerrywang/code/2026 Spring/Enterprise Computing"
+        // Add more directories here
+    ].map { $0.hasSuffix("/") && $0.count > 1 ? String($0.dropLast()) : $0 }
 
     func start() {
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
@@ -118,7 +124,7 @@ class FinderObserver: NSObject {
         
         let pipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe() // Silence expected errors (like searching for a missing dir)
+        process.standardError = Pipe() 
         
         do {
             try process.run()
@@ -135,11 +141,9 @@ class FinderObserver: NSObject {
     }
 
     private func getZoxideScore(for path: String) -> Double {
-        // Safely escape single quotes for Bash
         let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
         guard let output = runZoxideCommand("query -s '\(escapedPath)'") else { return 0.0 }
         
-        // Output format is typically: "<score>  <path>"
         let components = output.split(separator: " ", omittingEmptySubsequences: true)
         if let first = components.first, let score = Double(first) {
             return score
@@ -153,20 +157,35 @@ class FinderObserver: NSObject {
     }
 
     // MARK: - Path Evaluation
+    
+    private func isBlacklisted(path: String) -> Bool {
+        for blacklistedPath in blacklist {
+            // Check for exact match OR true subdirectory match
+            if path == blacklistedPath || path.hasPrefix(blacklistedPath + "/") {
+                return true
+            }
+        }
+        return false
+    }
 
     func evaluatePath() {
         autoreleasepool {
             guard let rawPath = getFrontmostFinderPath(), !rawPath.isEmpty else { return }
             
-            // Sanitize: Remove trailing slash unless it is the root directory "/"
             var currentPath = rawPath
             if currentPath.hasSuffix("/") && currentPath.count > 1 {
                 currentPath = String(currentPath.dropLast())
             }
             
             if currentPath != lastPath {
-                print("Scoped: \(currentPath)")
                 lastPath = currentPath
+                
+                if isBlacklisted(path: currentPath) {
+                    print("Ignored (Blacklisted): \(currentPath)")
+                    return
+                }
+                
+                print("Scoped: \(currentPath)")
                 
                 if isZoxideAddEnabled {
                     let scoreBefore = getZoxideScore(for: currentPath)
@@ -174,7 +193,6 @@ class FinderObserver: NSObject {
                     let scoreAfter = getZoxideScore(for: currentPath)
                     let delta = scoreAfter - scoreBefore
                     
-                    // Added formatting for a cleaner console output
                     print(String(format: "  -> Before: %5.2f | After: %5.2f | Change: %+.2f", scoreBefore, scoreAfter, delta))
                 }
             }
@@ -208,5 +226,5 @@ class FinderObserver: NSObject {
 let observer = FinderObserver()
 observer.start()
 
-print("Starting Zoxide Finder Tracker (Fully Integrated)...")
+print("Starting Zoxide Finder Tracker (With Blacklist)...")
 RunLoop.current.run()
