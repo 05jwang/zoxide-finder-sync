@@ -116,11 +116,33 @@ class FinderObserver: NSObject {
 
     // MARK: - Zoxide Integration
 
-    private func runZoxideCommand(_ args: String) -> String? {
-        let process = Process()
+    /// Attempts to locate the zoxide executable path
+    private func getZoxideExecutableURL() -> URL? {
+        let commonPaths = [
+            "/opt/homebrew/bin/zoxide", // Apple Silicon Homebrew
+            "/usr/local/bin/zoxide",    // Intel Homebrew
+            "/opt/local/bin/zoxide",    // MacPorts
+            "/usr/bin/zoxide"
+        ]
         
-        process.executableURL = URL(fileURLWithPath: "/bin/sh")
-        process.arguments = ["-c", "zoxide \(args)"]
+        for path in commonPaths {
+            if FileManager.default.fileExists(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+        }
+        return nil
+    }
+
+    /// Safely runs a zoxide command bypassing the shell to prevent injection
+    private func runZoxideCommand(arguments: [String]) -> String? {
+        guard let zoxideURL = getZoxideExecutableURL() else {
+            print("Error: Could not locate the zoxide executable.")
+            return nil
+        }
+
+        let process = Process()
+        process.executableURL = zoxideURL
+        process.arguments = arguments // Safely passes arguments without needing manual string escaping
         
         let pipe = Pipe()
         process.standardOutput = pipe
@@ -141,8 +163,8 @@ class FinderObserver: NSObject {
     }
 
     private func getZoxideScore(for path: String) -> Double {
-        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
-        guard let output = runZoxideCommand("query -s '\(escapedPath)'") else { return 0.0 }
+        // No escaping needed! Just pass the raw path in the arguments array.
+        guard let output = runZoxideCommand(arguments: ["query", "-s", path]) else { return 0.0 }
         
         let components = output.split(separator: " ", omittingEmptySubsequences: true)
         if let first = components.first, let score = Double(first) {
@@ -152,8 +174,8 @@ class FinderObserver: NSObject {
     }
 
     private func addZoxidePath(_ path: String) {
-        let escapedPath = path.replacingOccurrences(of: "'", with: "'\\''")
-        _ = runZoxideCommand("add '\(escapedPath)'")
+        // No escaping needed!
+        _ = runZoxideCommand(arguments: ["add", path])
     }
 
     // MARK: - Path Evaluation
