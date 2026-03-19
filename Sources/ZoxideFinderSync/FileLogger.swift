@@ -11,7 +11,7 @@ import os
 actor FileLogger {
     static let shared = FileLogger()
     
-    private let osLog = Logger(subsystem: "com.yourdomain.ZoxideFinderSync", category: "Application")
+    private let osLog = Logger(subsystem: "com.jerrywang.ZoxideFinderSync", category: "Application")
     private var fileHandle: FileHandle?
     private let logFileURL: URL
     
