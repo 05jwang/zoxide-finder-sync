@@ -1,56 +1,28 @@
-# ZoxideFinderSync: AI Workflow & Development Instructions
+# Zoxide Finder Sync - AI Assistant Instructions
 
-## 1. Project Overview
+## Project Overview
+`ZoxideFinderSync` is a macOS background utility designed to synchronize frecency data between the `zoxide` terminal utility and the macOS Finder. It observes active Finder windows and automatically adds the focused directories to the local `zoxide` database.
 
-ZoxideFinderSync is a macOS background utility written in Swift. It observes the active macOS Finder window using the Accessibility API (`AXObserver`) and automatically adds the current directory to `zoxide` (a smarter `cd` command) to keep its database updated with GUI navigation.
+**Primary Tech Stack:** Swift (macOS), AppleScript, Bash (for deployment).
 
-**Core Technologies:** Swift, macOS Accessibility API (ApplicationServices), shell scripting (`zoxide`).
+## Architecture & Core Files
+The project logic resides in `Sources/ZoxideFinderSync/`:
 
-## 2. Project Structure
+1.  **`ZoxideFinderSync.swift`**: The entry point. Uses `AXObserver` to track the frontmost Finder window. It extracts the path via AppleScript and uses `Process()` to execute `zoxide add <path>`.
+2.  **`SettingsManager.swift`**: Manages user defaults (`UserDefaults`). Controls the debounce timer, a master toggle (`isZoxideAddEnabled`), and a directory `blacklist`. Built with Combine (`@Published`) to support a future SwiftUI settings window.
+3.  **`FileLogger.swift`**: An actor-based thread-safe logger writing to `osLog` and a local file at `~/Library/Logs/ZoxideFinderSync/ZoxideFinderSync.log`.
 
-When suggesting file modifications or analyzing paths, refer to the following repository structure:
+## Environment & Build Rules
 
-```text
-.
-├── bin
-│   └── ZoxideFinderSync.app
-│       └── Contents
-│           ├── Info.plist
-│           ├── MacOS
-│           │   └── ZoxideFinderSync  <-- Compiled Executable
-│           └── Resources
-├── LICENSE
-├── README.md
-├── scripts
-│   └── zoxide_finder_tracker.sh
-└── src
-    └── ZoxideFinderSync.swift        <-- Main Source Code
+* **Development:** The application is developed, built, and run using **Xcode**. When suggesting code modifications, ensure they are compatible with standard Xcode build processes.
+* **Deployment:** The project includes an `install.sh` and `uninstall.sh` script. `install.sh` compiles a release binary using `swift build -c release`, generates a dynamic `.plist` file, and registers the app as a macOS background daemon via `launchctl`.
+* **Paths:** The installation directory is `~/.local/bin/ZoxideFinderSync`.
 
-```
+## Testing & Debugging Directives for AI
 
-## 3. Build Instructions
+If I ask you to help debug an issue or add a feature, please adhere to the following context:
 
-The project is built directly using the Swift compiler (`swiftc`). No Xcode project file (`.xcodeproj`) or Swift Package Manager (`Package.swift`) is currently required.
-
-To compile the source code, run the following command from the root directory:
-
-```bash
-swiftc src/ZoxideFinderSync.swift -o bin/ZoxideFinderSync.app/Contents/MacOS/ZoxideFinderSync
-
-```
-
-## 4. Execution & Permissions
-
-To run the compiled application, execute the binary directly from the root directory:
-
-```bash
-./bin/ZoxideFinderSync.app/Contents/MacOS/ZoxideFinderSync
-
-```
-
-### Critical Runtime Requirement: Accessibility Permissions
-
-Because this application hooks into the macOS Accessibility API to monitor Finder, **it will fail if it lacks system permissions.** Upon the first execution, the user MUST grant Accessibility access. If debugging a failure where the observer isn't attaching to Finder, verify permissions first:
-
-1. Open **System Settings** -> **Privacy & Security** -> **Accessibility**. 2. Ensure the terminal emulator running the executable (e.g., Terminal, iTerm2, Kitty, Ghostty) is toggled ON.
-2. Restart the application.
+1.  **Accessibility Permissions:** The app requires macOS Accessibility permissions. If debugging silent failures, always consider whether permissions were dropped or denied (`AXIsProcessTrustedWithOptions`).
+2.  **Logs:** Assume logs can be checked via `tail -f ~/Library/Logs/ZoxideFinderSync/ZoxideFinderSync.log`. If adding complex logic, implement `FileLogger.shared.log()` statements to aid in debugging.
+3.  **zoxide Executable:** The app searches for the `zoxide` binary in standard locations (Homebrew, MacPorts, etc.). If debugging execution errors, consider environment variable `$PATH` limitations when running under `launchd`.
+4.  **Debouncing:** Ensure any new observation logic respects or utilizes the existing `DispatchWorkItem` debounce mechanism in `ZoxideFinderSync.swift`.
