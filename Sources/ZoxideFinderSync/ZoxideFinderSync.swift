@@ -8,8 +8,10 @@ struct ZoxideFinderSyncApp {
         let observer = FinderObserver()
         observer.start()
 
-        print("Starting Zoxide Finder Tracker (With Blacklist)...")
-        // Use the main run loop explicitly
+        Task {
+            await FileLogger.shared.log("Starting Zoxide Finder Tracker...")
+        }
+        
         RunLoop.main.run()
     }
 }
@@ -21,26 +23,21 @@ class FinderObserver: NSObject {
     var finderElement: AXUIElement?
     var runLoopSource: CFRunLoopSource?
     
-    // Debouncing properties
     private var debounceWorkItem: DispatchWorkItem?
-    private let debounceInterval: TimeInterval = 0.75
-    
-    // Configuration Flags
-    var isZoxideAddEnabled: Bool = true
-    
-    // Blacklist configuration (automatically sanitized to remove accidental trailing slashes)
-    private let blacklist: [String] = [
-        "/Users/jerrywang/code/2026 Spring/Enterprise Computing"
-        // Add more directories here
-    ].map { $0.hasSuffix("/") && $0.count > 1 ? String($0.dropLast()) : $0 }
 
     func start() {
-        // Now safe to access kAXTrustedCheckOptionPrompt on the MainActor
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
         guard AXIsProcessTrustedWithOptions(options) else {
-            print("ERROR: Accessibility permissions are required.")
-            print("Please grant them in System Settings -> Privacy & Security -> Accessibility, then restart.")
+            Task {
+                await FileLogger.shared.log("ERROR: Accessibility permissions required.", type: .error)
+            }
             exit(1)
+        }
+        
+        if !SettingsManager.shared.isZoxideAddEnabled {
+            Task {
+                await FileLogger.shared.log("WARNING: Zoxide additions are currently disabled in settings.")
+            }
         }
 
         setupWorkspaceObservers()
@@ -49,7 +46,7 @@ class FinderObserver: NSObject {
             attachObserver(to: finderApp.processIdentifier)
             triggerDebouncedEvaluation()
         } else {
-            print("Finder is not currently running. Waiting for launch...")
+            Task { await FileLogger.shared.log("Finder is not running. Waiting for launch...") }
         }
     }
 
@@ -63,7 +60,7 @@ class FinderObserver: NSObject {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier == "com.apple.finder" else { return }
 
-        print("Finder launch detected. Attaching observer...")
+        Task { await FileLogger.shared.log("Finder launch detected. Attaching observer...") }
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.attachObserver(to: app.processIdentifier)
             self.triggerDebouncedEvaluation()
@@ -74,7 +71,7 @@ class FinderObserver: NSObject {
         guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
               app.bundleIdentifier == "com.apple.finder" else { return }
 
-        print("Finder termination detected. Cleaning up observer...")
+        Task { await FileLogger.shared.log("Finder termination detected. Cleaning up observer...") }
         cleanupObserver()
     }
 
@@ -84,7 +81,6 @@ class FinderObserver: NSObject {
         let observerCallback: AXObserverCallback = { (observer, element, notification, refcon) in
             guard let refcon = refcon else { return }
             let tracker = Unmanaged<FinderObserver>.fromOpaque(refcon).takeUnretainedValue()
-            // Dispatch back to MainActor context from the C callback
             Task { @MainActor in
                 tracker.triggerDebouncedEvaluation()
             }
@@ -93,7 +89,7 @@ class FinderObserver: NSObject {
         var newObserver: AXObserver?
         let result = AXObserverCreate(pid, observerCallback, &newObserver)
         guard result == .success, let observer = newObserver else {
-            print("Failed to create AXObserver for new Finder process. Code: \(result.rawValue)")
+            Task { await FileLogger.shared.log("Failed to create AXObserver. Code: \(result.rawValue)", type: .error) }
             return
         }
         self.observer = observer
@@ -111,7 +107,7 @@ class FinderObserver: NSObject {
         self.runLoopSource = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
 
-        print("Successfully attached to Finder (PID: \(pid)).")
+        Task { await FileLogger.shared.log("Successfully attached to Finder (PID: \(pid)).") }
     }
 
     private func cleanupObserver() {
@@ -130,16 +126,16 @@ class FinderObserver: NSObject {
             self?.evaluatePath()
         }
         debounceWorkItem = workItem
-        DispatchQueue.main.asyncAfter(deadline: .now() + debounceInterval, execute: workItem)
+        DispatchQueue.main.asyncAfter(deadline: .now() + SettingsManager.shared.debounceInterval, execute: workItem)
     }
 
     // MARK: - Zoxide Integration
 
     private func getZoxideExecutableURL() -> URL? {
         let commonPaths = [
-            "/opt/homebrew/bin/zoxide", // Apple Silicon Homebrew
-            "/usr/local/bin/zoxide",    // Intel Homebrew
-            "/opt/local/bin/zoxide",    // MacPorts
+            "/opt/homebrew/bin/zoxide",
+            "/usr/local/bin/zoxide",
+            "/opt/local/bin/zoxide",
             "/usr/bin/zoxide"
         ]
         
@@ -153,7 +149,7 @@ class FinderObserver: NSObject {
 
     private func runZoxideCommand(arguments: [String]) -> String? {
         guard let zoxideURL = getZoxideExecutableURL() else {
-            print("Error: Could not locate the zoxide executable.")
+            Task { await FileLogger.shared.log("Error: Could not locate the zoxide executable.", type: .error) }
             return nil
         }
 
@@ -174,14 +170,13 @@ class FinderObserver: NSObject {
                 return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
             }
         } catch {
-            print("Failed to run zoxide: \(error)")
+            Task { await FileLogger.shared.log("Failed to run zoxide: \(error)", type: .error) }
         }
         return nil
     }
 
     private func getZoxideScore(for path: String) -> Double {
         guard let output = runZoxideCommand(arguments: ["query", "-s", path]) else { return 0.0 }
-        
         let components = output.split(separator: " ", omittingEmptySubsequences: true)
         if let first = components.first, let score = Double(first) {
             return score
@@ -196,7 +191,8 @@ class FinderObserver: NSObject {
     // MARK: - Path Evaluation
     
     private func isBlacklisted(path: String) -> Bool {
-        for blacklistedPath in blacklist {
+        // Now accesses SettingsManager instead of hardcoded array
+        for blacklistedPath in SettingsManager.shared.blacklist {
             if path == blacklistedPath || path.hasPrefix(blacklistedPath + "/") {
                 return true
             }
@@ -217,19 +213,20 @@ class FinderObserver: NSObject {
                 lastPath = currentPath
                 
                 if isBlacklisted(path: currentPath) {
-                    print("Ignored (Blacklisted): \(currentPath)")
+                    Task { await FileLogger.shared.log("Ignored (Blacklisted): \(currentPath)") }
                     return
                 }
                 
-                print("Scoped: \(currentPath)")
+                Task { await FileLogger.shared.log("Scoped: \(currentPath)") }
                 
-                if isZoxideAddEnabled {
+                if SettingsManager.shared.isZoxideAddEnabled {
                     let scoreBefore = getZoxideScore(for: currentPath)
                     addZoxidePath(currentPath)
                     let scoreAfter = getZoxideScore(for: currentPath)
                     let delta = scoreAfter - scoreBefore
                     
-                    print(String(format: "  -> Before: %5.2f | After: %5.2f | Change: %+.2f", scoreBefore, scoreAfter, delta))
+                    let logStr = String(format: "  -> Before: %5.2f | After: %5.2f | Change: %+.2f", scoreBefore, scoreAfter, delta)
+                    Task { await FileLogger.shared.log(logStr) }
                 }
             }
         }
