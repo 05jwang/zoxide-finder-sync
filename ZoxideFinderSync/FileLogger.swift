@@ -8,6 +8,10 @@
 import Foundation
 import os
 
+extension Notification.Name {
+    static let newLogEntry = Notification.Name("newLogEntry")
+}
+
 actor FileLogger {
     static let shared = FileLogger()
 
@@ -50,10 +54,8 @@ actor FileLogger {
     }
 
     func log(_ message: String, type: OSLogType = .default) {
-        // 1. Log to macOS Console
         osLog.log(level: type, "\(message)")
 
-        // 2. Log to File for future GUI
         let timestamp = ISO8601DateFormatter().string(from: Date())
         let logEntry = "[\(timestamp)] \(message)\n"
 
@@ -66,6 +68,13 @@ actor FileLogger {
                     "Failed to write to log file: \(error.localizedDescription)"
                 )
             }
+        }
+
+        Task { @MainActor in
+            NotificationCenter.default.post(
+                name: .newLogEntry,
+                object: logEntry
+            )
         }
     }
 

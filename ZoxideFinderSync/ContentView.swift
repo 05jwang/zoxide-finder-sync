@@ -4,6 +4,7 @@ struct ContentView: View {
     @EnvironmentObject var settings: SettingsManager
     @State private var logText: String = "Loading logs..."
     @State private var newBlacklistPath: String = ""
+    @State private var isAutoScrolling: Bool = true
 
     var body: some View {
         TabView {
@@ -90,7 +91,18 @@ struct ContentView: View {
                     } else {
                         ForEach(settings.blacklist, id: \.self) { path in
                             HStack {
+                                let exists = FileManager.default.fileExists(
+                                    atPath: path
+                                )
+
                                 Text(path)
+                                    .foregroundColor(exists ? .primary : .red)
+                                    .help(
+                                        exists
+                                            ? ""
+                                            : "Warning: Path does not currently exist."
+                                    )
+
                                 Spacer()
                                 Button(action: {
                                     settings.blacklist.removeAll { $0 == path }
@@ -116,22 +128,45 @@ struct ContentView: View {
             HStack {
                 Text("Application Logs")
                     .font(.headline)
+
                 Spacer()
-                Button(action: refreshLogs) {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+
+                if !isAutoScrolling {
+                    Button(action: {
+                        isAutoScrolling = true
+                        // Trigger a slight text update or just rely on state change to flush the view
+                        logText += ""
+                    }) {
+                        Label(
+                            "Resume Auto-Scroll",
+                            systemImage: "arrow.down.to.line"
+                        )
+                        .foregroundColor(.blue)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.trailing, 10)
                 }
+
             }
             .padding(.bottom, 5)
 
-            TextEditor(text: .constant(logText))
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .background(Color(NSColor.textBackgroundColor))
+            // REPLACED: TextEditor with our custom LogTextView
+            LogTextView(text: $logText, isAutoScrolling: $isAutoScrolling)
                 .border(Color.secondary.opacity(0.2))
+                // Append new logs dynamically as they are written
+                .onReceive(
+                    NotificationCenter.default.publisher(for: .newLogEntry)
+                ) { notification in
+                    if let newLog = notification.object as? String {
+                        logText += newLog
+                    }
+                }
         }
         .padding()
         .onAppear {
             refreshLogs()
+            // Reset auto-scroll when the tab appears
+            isAutoScrolling = true
         }
     }
 
