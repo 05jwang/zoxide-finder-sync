@@ -1,39 +1,25 @@
 import SwiftUI
+import AppKit
 
 @main
 struct ZoxideFinderSyncApp: App {
-    // Keep a strong reference to your observer so it doesn't deallocate
     let observer = FinderObserver()
     @StateObject private var settings = SettingsManager.shared
 
     init() {
-        // Start tracking Finder immediately upon app launch
         observer.start()
-
         Task {
             await FileLogger.shared.log("ZoxideFinderSync App launched.")
         }
     }
 
     var body: some Scene {
-        // The main window for Settings and Logs
-        WindowGroup {
-            ContentView()
-                .environmentObject(settings)
-        }
-
-        // The Menu Bar Icon
+        // The Menu Bar Icon is now the ONLY scene.
         MenuBarExtra("Zoxide Sync", systemImage: "folder.badge.gearshape") {
             Button("Open Settings & Logs") {
-                // Brings the hidden UIElement app window to the foreground
-                NSApp.activate(ignoringOtherApps: true)
-
-                // If the window was closed, this forces it to reopen
-                if let window = NSApplication.shared.windows.first {
-                    window.makeKeyAndOrderFront(nil)
-                }
+                SettingsWindowManager.shared.openWindow(with: settings)
             }
-
+            
             Divider()
 
             Button("Quit ZoxideFinderSync") {
@@ -43,5 +29,60 @@ struct ZoxideFinderSyncApp: App {
                 }
             }
         }
+    }
+}
+
+// Manages the lifecycle of the settings window to prevent multiple instances
+// and ensure it doesn't open on application startup.
+@MainActor
+final class SettingsWindowManager: NSObject { // 1. Inherit from NSObject
+    static let shared = SettingsWindowManager()
+    private var window: NSWindow?
+
+    private override init() {} // 2. Override the NSObject initializer
+
+    func openWindow(with settings: SettingsManager) {
+        // If the window already exists, just bring it to the front
+        if let existingWindow = window {
+            NSApp.activate(ignoringOtherApps: true)
+            existingWindow.makeKeyAndOrderFront(nil)
+            return
+        }
+
+        // Otherwise, create a new window holding the ContentView
+        let contentView = ContentView()
+            .environmentObject(settings)
+            // Ensure the window has a reasonable default size
+            .frame(minWidth: 500, minHeight: 400)
+
+        let hostingController = NSHostingController(rootView: contentView)
+        
+        let newWindow = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        
+        newWindow.title = "ZoxideFinderSync Settings"
+        newWindow.contentViewController = hostingController
+        newWindow.center()
+        newWindow.isReleasedWhenClosed = false
+        
+        // Handle window closure to free up the reference
+        newWindow.delegate = self
+        
+        self.window = newWindow
+        
+        NSApp.activate(ignoringOtherApps: true)
+        newWindow.makeKeyAndOrderFront(nil)
+    }
+}
+
+// Keep your existing extension exactly as it was:
+extension SettingsWindowManager: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        // Nil out the reference when closed so it can be cleanly recreated later
+        self.window = nil
     }
 }
