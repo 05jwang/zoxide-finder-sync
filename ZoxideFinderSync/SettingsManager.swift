@@ -18,6 +18,11 @@ final class SettingsManager: ObservableObject {
     @Published var isZoxideAddEnabled: Bool {
         didSet {
             defaults.set(isZoxideAddEnabled, forKey: Keys.isZoxideAddEnabled)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Zoxide Additions Enabled = \(isZoxideAddEnabled)"
+                )
+            }
         }
     }
 
@@ -27,24 +32,56 @@ final class SettingsManager: ObservableObject {
                 $0.hasSuffix("/") && $0.count > 1 ? String($0.dropLast()) : $0
             }
             defaults.set(sanitized, forKey: Keys.blacklist)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Blacklist updated (Total items: \(blacklist.count))"
+                )
+            }
         }
     }
 
     @Published var debounceInterval: TimeInterval {
-        didSet { defaults.set(debounceInterval, forKey: Keys.debounceInterval) }
+        didSet {
+            defaults.set(debounceInterval, forKey: Keys.debounceInterval)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Debounce Interval = \(debounceInterval)s"
+                )
+            }
+        }
     }
 
-    // New Published Property
     @Published var zoxidePath: String {
-        didSet { defaults.set(zoxidePath, forKey: Keys.zoxidePath) }
+        didSet {
+            defaults.set(zoxidePath, forKey: Keys.zoxidePath)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Zoxide Path = \(zoxidePath.isEmpty ? "Auto-discovery" : zoxidePath)"
+                )
+            }
+        }
     }
 
     @Published var topFolderPath: String {
-        didSet { defaults.set(topFolderPath, forKey: Keys.topFolderPath) }
+        didSet {
+            defaults.set(topFolderPath, forKey: Keys.topFolderPath)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Top Folder Target Directory = \(topFolderPath)"
+                )
+            }
+        }
     }
 
     @Published var topFolderCount: Int {
-        didSet { defaults.set(topFolderCount, forKey: Keys.topFolderCount) }
+        didSet {
+            defaults.set(topFolderCount, forKey: Keys.topFolderCount)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Top Folder Count = \(topFolderCount)"
+                )
+            }
+        }
     }
 
     private init() {
