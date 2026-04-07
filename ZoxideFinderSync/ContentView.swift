@@ -19,13 +19,13 @@ struct ContentView: View {
                 }
         }
         .padding()
-        .frame(minWidth: 550, minHeight: 450)
+        .frame(minWidth: 550, idealWidth: 650, minHeight: 450)
     }
 
     // MARK: - Settings Tab
     private var settingsTab: some View {
         Form {
-
+            Spacer().frame(height: 15)
             Section(header: Text("General").font(.headline)) {
                 Toggle(
                     "Enable Zoxide Additions",
