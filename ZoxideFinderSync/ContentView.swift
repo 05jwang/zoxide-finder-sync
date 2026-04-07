@@ -11,7 +11,7 @@ struct ContentView: View {
                 .tabItem {
                     Label("Settings", systemImage: "gear")
                 }
-            
+
             logsTab
                 .tabItem {
                     Label("Logs", systemImage: "doc.text")
@@ -20,46 +20,69 @@ struct ContentView: View {
         .padding()
         .frame(minWidth: 550, minHeight: 450)
     }
-    
+
     // MARK: - Settings Tab
     private var settingsTab: some View {
         Form {
-            
+
             Section(header: Text("General").font(.headline)) {
-                Toggle("Enable Zoxide Additions", isOn: $settings.isZoxideAddEnabled)
-                
-                Stepper(value: $settings.debounceInterval, in: 0.1...5.0, step: 0.25) {
-                    Text("Debounce Interval: \(settings.debounceInterval, specifier: "%.2f")s")
+                Toggle(
+                    "Enable Zoxide Additions",
+                    isOn: $settings.isZoxideAddEnabled
+                )
+
+                Stepper(
+                    value: $settings.debounceInterval,
+                    in: 0.1...5.0,
+                    step: 0.25
+                ) {
+                    Text(
+                        "Debounce Interval: \(settings.debounceInterval, specifier: "%.2f")s"
+                    )
                 }
             }
             .padding(.bottom, 10)
-            
+
             Section(header: Text("Paths & Configuration").font(.headline)) {
-                TextField("Custom Zoxide Executable Path", text: $settings.zoxidePath)
-                    .textFieldStyle(.roundedBorder)
-                    .help("Leave blank for auto-discovery (/opt/homebrew/bin/zoxide, etc.)")
-                
-                TextField("Top Folders Target Directory", text: $settings.topFolderPath)
-                    .textFieldStyle(.roundedBorder)
-                
+                TextField(
+                    "Custom Zoxide Executable Path",
+                    text: $settings.zoxidePath
+                )
+                .textFieldStyle(.roundedBorder)
+                .help(
+                    "Leave blank for auto-discovery (/opt/homebrew/bin/zoxide, etc.)"
+                )
+
+                TextField(
+                    "Top Folders Target Directory",
+                    text: $settings.topFolderPath
+                )
+                .textFieldStyle(.roundedBorder)
+
                 Stepper(value: $settings.topFolderCount, in: 1...50) {
                     Text("Top Folder Count: \(settings.topFolderCount)")
                 }
             }
             .padding(.bottom, 10)
-            
+
             Section(header: Text("Path Blacklist").font(.headline)) {
                 HStack {
-                    TextField("Enter path to ignore (e.g., /Volumes/Backup)", text: $newBlacklistPath)
-                        .textFieldStyle(.roundedBorder)
-                        .onSubmit { addBlacklistEntry() }
-                    
+                    TextField(
+                        "Enter path to ignore (e.g., /Volumes/Backup)",
+                        text: $newBlacklistPath
+                    )
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit { addBlacklistEntry() }
+
                     Button("Add") {
                         addBlacklistEntry()
                     }
-                    .disabled(newBlacklistPath.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(
+                        newBlacklistPath.trimmingCharacters(in: .whitespaces)
+                            .isEmpty
+                    )
                 }
-                
+
                 List {
                     if settings.blacklist.isEmpty {
                         Text("No blacklisted paths.")
@@ -86,7 +109,7 @@ struct ContentView: View {
         }
         .padding()
     }
-    
+
     // MARK: - Logs Tab
     private var logsTab: some View {
         VStack(alignment: .leading) {
@@ -99,7 +122,7 @@ struct ContentView: View {
                 }
             }
             .padding(.bottom, 5)
-            
+
             TextEditor(text: .constant(logText))
                 .font(.system(.body, design: .monospaced))
                 .scrollContentBackground(.hidden)
@@ -111,7 +134,7 @@ struct ContentView: View {
             refreshLogs()
         }
     }
-    
+
     // MARK: - Helpers
     private func addBlacklistEntry() {
         let trimmed = newBlacklistPath.trimmingCharacters(in: .whitespaces)
@@ -120,7 +143,7 @@ struct ContentView: View {
             newBlacklistPath = ""
         }
     }
-    
+
     private func refreshLogs() {
         Task {
             logText = await FileLogger.shared.readLogs()

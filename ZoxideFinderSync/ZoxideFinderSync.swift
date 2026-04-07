@@ -206,6 +206,12 @@ class FinderObserver: NSObject {
         ]
         for path in commonPaths {
             if FileManager.default.fileExists(atPath: path) {
+                // AUTO-FILL: If it was empty, update it so the UI reflects the discovered path
+                if customPath.isEmpty {
+                    Task { @MainActor in
+                        SettingsManager.shared.zoxidePath = path
+                    }
+                }
                 return URL(fileURLWithPath: path)
             }
         }

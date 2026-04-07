@@ -1,5 +1,5 @@
-import SwiftUI
 import AppKit
+import SwiftUI
 
 @main
 struct ZoxideFinderSyncApp: App {
@@ -19,7 +19,7 @@ struct ZoxideFinderSyncApp: App {
             Button("Open Settings & Logs") {
                 SettingsWindowManager.shared.openWindow(with: settings)
             }
-            
+
             Divider()
 
             Button("Quit ZoxideFinderSync") {
@@ -35,11 +35,11 @@ struct ZoxideFinderSyncApp: App {
 // Manages the lifecycle of the settings window to prevent multiple instances
 // and ensure it doesn't open on application startup.
 @MainActor
-final class SettingsWindowManager: NSObject { // 1. Inherit from NSObject
+final class SettingsWindowManager: NSObject {  // 1. Inherit from NSObject
     static let shared = SettingsWindowManager()
     private var window: NSWindow?
 
-    private override init() {} // 2. Override the NSObject initializer
+    private override init() {}  // 2. Override the NSObject initializer
 
     func openWindow(with settings: SettingsManager) {
         // If the window already exists, just bring it to the front
@@ -56,24 +56,24 @@ final class SettingsWindowManager: NSObject { // 1. Inherit from NSObject
             .frame(minWidth: 500, minHeight: 400)
 
         let hostingController = NSHostingController(rootView: contentView)
-        
+
         let newWindow = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false
         )
-        
+
         newWindow.title = "ZoxideFinderSync Settings"
         newWindow.contentViewController = hostingController
         newWindow.center()
         newWindow.isReleasedWhenClosed = false
-        
+
         // Handle window closure to free up the reference
         newWindow.delegate = self
-        
+
         self.window = newWindow
-        
+
         NSApp.activate(ignoringOtherApps: true)
         newWindow.makeKeyAndOrderFront(nil)
     }
