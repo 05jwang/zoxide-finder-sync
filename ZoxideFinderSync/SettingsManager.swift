@@ -1,5 +1,7 @@
 import Combine
 import Foundation
+import ServiceManagement
+import os
 
 @MainActor
 final class SettingsManager: ObservableObject {
@@ -11,8 +13,9 @@ final class SettingsManager: ObservableObject {
         static let blacklist = "blacklist"
         static let debounceInterval = "debounceInterval"
         static let zoxidePath = "zoxidePath"
-        static let topFolderPath = "topFolderPath"  // New Key
-        static let topFolderCount = "topFolderCount"  // New Key
+        static let topFolderPath = "topFolderPath"
+        static let topFolderCount = "topFolderCount"
+        static let launchAtLogin = "launchAtLogin"
     }
 
     @Published var isZoxideAddEnabled: Bool {
@@ -84,6 +87,19 @@ final class SettingsManager: ObservableObject {
         }
     }
 
+    @Published var launchAtLogin: Bool {
+        didSet {
+            defaults.set(launchAtLogin, forKey: Keys.launchAtLogin)
+            Task {
+                await FileLogger.shared.log(
+                    "Setting changed: Toggle Launch at Login = \(launchAtLogin)"
+                )
+            }
+
+            toggleLaunchAtLogin(enabled: launchAtLogin)
+        }
+    }
+
     private init() {
         let defaultTopPath = NSString(string: "~/Zoxide Top")
             .expandingTildeInPath
@@ -93,7 +109,8 @@ final class SettingsManager: ObservableObject {
             Keys.debounceInterval: 0.75,
             Keys.zoxidePath: "",  // Default to empty string for auto-discovery
             Keys.topFolderPath: defaultTopPath,
-            Keys.topFolderCount: 10,
+            Keys.topFolderCount: 20,
+            Keys.launchAtLogin: false,
         ])
 
         self.isZoxideAddEnabled = defaults.bool(forKey: Keys.isZoxideAddEnabled)
@@ -103,6 +120,8 @@ final class SettingsManager: ObservableObject {
         self.topFolderPath =
             defaults.string(forKey: Keys.topFolderPath) ?? defaultTopPath
         self.topFolderCount = defaults.integer(forKey: Keys.topFolderCount)
+
+        self.launchAtLogin = SMAppService.mainApp.status == .enabled
     }
 
     func addBlacklistEntry(_ path: String) {
@@ -113,6 +132,42 @@ final class SettingsManager: ObservableObject {
         if !current.contains(sanitized) {
             current.append(sanitized)
             blacklist = current
+        }
+    }
+
+    // MARK: - App Service Registration
+    private func toggleLaunchAtLogin(enabled: Bool) {
+        do {
+            if enabled {
+                if SMAppService.mainApp.status != .enabled {
+                    try SMAppService.mainApp.register()
+                    Task {
+                        await FileLogger.shared.log(
+                            "Successfully registered Launch at Login."
+                        )
+                    }
+                }
+            } else {
+                if SMAppService.mainApp.status == .enabled {
+                    try SMAppService.mainApp.unregister()
+                    Task {
+                        await FileLogger.shared.log(
+                            "Successfully unregistered Launch at Login."
+                        )
+                    }
+                }
+            }
+        } catch {
+            Task {
+                await FileLogger.shared.log(
+                    "Failed to update SMAppService: \(error.localizedDescription)",
+                    type: .error
+                )
+            }
+            // Revert UI toggle if system registration fails
+            DispatchQueue.main.async {
+                self.launchAtLogin = (SMAppService.mainApp.status == .enabled)
+            }
         }
     }
 }

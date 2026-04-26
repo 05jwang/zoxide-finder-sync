@@ -19,7 +19,7 @@ struct ContentView: View {
                 }
         }
         .padding()
-        .frame(minWidth: 550, idealWidth: 650, minHeight: 450)
+        .frame(minWidth: 550, minHeight: 450)
     }
 
     // MARK: - Settings Tab
@@ -31,6 +31,8 @@ struct ContentView: View {
                     "Enable Zoxide Additions",
                     isOn: $settings.isZoxideAddEnabled
                 )
+                
+                Toggle("Launch at Login", isOn: $settings.launchAtLogin)
 
                 Stepper(
                     value: $settings.debounceInterval,

@@ -53,12 +53,12 @@ final class SettingsWindowManager: NSObject {  // 1. Inherit from NSObject
         let contentView = ContentView()
             .environmentObject(settings)
             // Ensure the window has a reasonable default size
-            .frame(minWidth: 500, minHeight: 400)
+            .frame(minWidth: 800, minHeight: 600)
 
         let hostingController = NSHostingController(rootView: contentView)
 
         let newWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 500, height: 400),
+            contentRect: NSRect(x: 0, y: 0, width: 800, height: 600),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: false

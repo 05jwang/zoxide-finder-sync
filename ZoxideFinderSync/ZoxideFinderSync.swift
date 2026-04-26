@@ -11,20 +11,49 @@ class FinderObserver: NSObject {
 
     private var evaluationTask: Task<Void, Never>?
 
+    @MainActor
     func start() {
         let options =
             [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true]
             as CFDictionary
-        guard AXIsProcessTrustedWithOptions(options) else {
-            Task {
-                await FileLogger.shared.log(
-                    "ERROR: Accessibility permissions required.",
-                    type: .error
-                )
+
+        if AXIsProcessTrustedWithOptions(options) {
+            // Permissions granted, proceed with initialization
+            initializeApp()
+        } else {
+            // Permissions missing, gracefully prompt the user
+            handleMissingPermissions()
+        }
+    }
+
+    @MainActor
+    private func handleMissingPermissions() {
+        let alert = NSAlert()
+        alert.messageText = "Accessibility Permissions Required"
+        alert.informativeText =
+            "ZoxideFinderSync needs Accessibility permissions to monitor Finder windows. Please grant access in System Settings, then restart the app."
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "Open System Settings")
+        alert.addButton(withTitle: "Quit")
+
+        let response = alert.runModal()
+
+        if response == .alertFirstButtonReturn {
+            // Attempt to open the exact Privacy & Security pane
+            if let url = URL(
+                string:
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
+            ) {
+                NSWorkspace.shared.open(url)
             }
-            exit(1)
         }
 
+        // Terminate gracefully rather than crashing via exit(1)
+        NSApplication.shared.terminate(nil)
+    }
+
+    @MainActor
+    private func initializeApp() {
         if !SettingsManager.shared.isZoxideAddEnabled {
             Task {
                 await FileLogger.shared.log(
