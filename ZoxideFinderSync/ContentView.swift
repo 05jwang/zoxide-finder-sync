@@ -44,7 +44,8 @@ struct ContentView: View {
                     )
                 }
             }
-            .padding(.bottom, 10)
+            
+            Divider()
 
             Section(header: Text("Paths & Configuration").font(.headline)) {
                 TextField(
@@ -66,7 +67,8 @@ struct ContentView: View {
                     Text("Top Folder Count: \(settings.topFolderCount)")
                 }
             }
-            .padding(.bottom, 10)
+            
+            Divider()
 
             Section(header: Text("Path Blacklist").font(.headline)) {
                 HStack {

@@ -35,17 +35,18 @@ struct ZoxideFinderSyncApp: App {
 // Manages the lifecycle of the settings window to prevent multiple instances
 // and ensure it doesn't open on application startup.
 @MainActor
-final class SettingsWindowManager: NSObject {  // 1. Inherit from NSObject
+final class SettingsWindowManager: NSObject {
     static let shared = SettingsWindowManager()
     private var window: NSWindow?
 
-    private override init() {}  // 2. Override the NSObject initializer
+    private override init() {}
 
     func openWindow(with settings: SettingsManager) {
         // If the window already exists, just bring it to the front
         if let existingWindow = window {
             NSApp.activate(ignoringOtherApps: true)
             existingWindow.makeKeyAndOrderFront(nil)
+            existingWindow.orderFrontRegardless()
             return
         }
 
@@ -76,6 +77,7 @@ final class SettingsWindowManager: NSObject {  // 1. Inherit from NSObject
 
         NSApp.activate(ignoringOtherApps: true)
         newWindow.makeKeyAndOrderFront(nil)
+        newWindow.orderFrontRegardless() 
     }
 }
 
